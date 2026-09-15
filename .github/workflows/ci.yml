@@ -42,7 +42,7 @@ jobs:
         run: ruff check .
 
       - name: Run tests with pytest
-        run: python -m pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short
 
       - name: Test CLI entrypoints
         run: |

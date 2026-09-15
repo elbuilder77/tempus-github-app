@@ -62,6 +62,8 @@ Neither the GitHub App private key nor ephemeral installation tokens ever leak t
 pip install -e .
 # or with optional webhook server:
 pip install -e ".[server]"
+# or for running tests and development:
+pip install -e ".[dev]"
 ```
 
 Requires Python 3.10+ and `tempus-ddb>=0.5.0`.
@@ -110,7 +112,7 @@ Run the FastAPI-based webhook receiver to securely verify GitHub webhook deliver
 tempus-github-app-server --secret <WEBHOOK_SECRET> --port 8000
 ```
 
-* `POST /webhook`: Validates `X-Hub-Signature-256` HMAC-SHA256 signature and dispatches events.
+* `POST /webhook`: Validates `X-Hub-Signature-256` HMAC-SHA256 signature, dispatches events, and masks internal errors with generic responses.
 * `GET /healthz`: Health check endpoint for container orchestrators.
 
 ### 4. Python SDK Integration
@@ -140,7 +142,7 @@ outcome_json = executor.execute(permit_json)
 
 ## 🛡️ Security Guarantees & Invariants
 
-* **Zero Credential Leakage**: The agent never receives GitHub tokens. The executor process handles authentication internally.
+* **Zero Credential & Information Leakage**: The agent never receives GitHub tokens. The executor process handles authentication internally, and the webhook server sanitizes error responses to prevent internal detail disclosure.
 * **Scope Minimization**: Tokens are generated on-demand with minimal repository and permission scope (`issues: write` or `pull_requests: write`).
 * **Redirect Shielding**: Enforces strict redirect blocking (`RejectRedirects`) on API calls to prevent credential forwarding to third-party endpoints.
 * **Replay Protection**: The underlying Tempus permit is consumed atomically; replay attempts fail immediately without contacting GitHub.
@@ -150,7 +152,10 @@ outcome_json = executor.execute(permit_json)
 
 ## 🧪 Testing
 
+Install test dependencies and run the test suite:
+
 ```bash
+pip install -e ".[dev]"
 pytest tests/ -v
 ```
 

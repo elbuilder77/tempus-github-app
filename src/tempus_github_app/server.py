@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 
@@ -18,6 +19,8 @@ try:
     from fastapi.responses import JSONResponse
 except ImportError:
     FastAPI = None  # type: ignore[assignment,misc]
+
+logger = logging.getLogger(__name__)
 
 
 def create_webhook_app(
@@ -95,9 +98,10 @@ def create_webhook_app(
                 detail=str(exc),
             ) from exc
         except Exception as exc:
+            logger.exception("Unhandled error processing %s webhook", event_name)
             raise HTTPException(
                 status_code=500,
-                detail=f"Error handling event: {exc}",
+                detail="Error handling event",
             ) from exc
 
     return app

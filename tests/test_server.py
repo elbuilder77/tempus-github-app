@@ -104,3 +104,25 @@ def test_webhook_malformed_json_rejected(client: TestClient, test_secret: str):
         headers={"X-GitHub-Event": "issues", "X-Hub-Signature-256": sig},
     )
     assert response.status_code == 400
+
+
+def test_webhook_unhandled_error_returns_generic_500(test_secret: str):
+    handler = GitHubWebhookHandler(test_secret)
+
+    @handler.on("issues")
+    def on_issue(event: str, payload: dict):
+        raise RuntimeError("Sensitive internal database error")
+
+    app = create_webhook_app(webhook_secret=test_secret, handler=handler)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    body = b'{"action":"opened"}'
+    sig = _sign(test_secret, body)
+    response = client.post(
+        "/webhook",
+        content=body,
+        headers={"X-GitHub-Event": "issues", "X-Hub-Signature-256": sig},
+    )
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Error handling event"
+    assert "Sensitive internal database error" not in response.text

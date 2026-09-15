@@ -23,3 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Strict HMAC-SHA256 signature verification (`X-Hub-Signature-256`).
   - GitHub `ping` event handling and `/healthz` health check endpoint for orchestrators.
 - **Multi-OS GitHub Actions CI**: Automated test matrix running on Ubuntu, Windows, and macOS across Python 3.10, 3.11, and 3.12 with `ruff` and `pytest`.
+
+### Fixed
+- **Pytest Root Resolution**: Included repository root (`.`) in `tool.pytest.ini_options.pythonpath` so `pytest tests/ -v` can import `tests.conftest` fixtures without requiring `python -m pytest`.
+- **Webhook Error Sanitization**: Replaced unhandled exception reflection in FastAPI webhook server (`/webhook`) with a generic error message (`Error handling event`) while capturing full traces in server logs, preventing internal information disclosure.
+
