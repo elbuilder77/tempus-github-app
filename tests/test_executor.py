@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from tempus_github_app.credentials import GitHubAppCredentials
 from tempus_github_app.executor import GitHubAppActionAdapter
 from tests.conftest import MockAppTransport
@@ -68,3 +70,32 @@ def test_action_adapter_executes_issue_creation(app_key):
     assert result.status == "SUCCEEDED"
     assert result.payload["number"] == 1
     assert result.payload["resource"] == "acme/widget"
+
+
+def test_executor_adapter_rejects_gate_db_if_runtime_lacks_support(app_key, monkeypatch, tmp_path):
+    import tempus_ddb.executor_runtime
+
+    from tempus_github_app.executor import GitHubAppExecutorAdapter, GitHubExecutorError
+
+    credentials = GitHubAppCredentials(
+        "Iv1.test",
+        str(app_key[0]),
+        42,
+        "acme/widget",
+    )
+
+    # Create signature without gate_db
+    def mock_init(self, executor_db, executor_keyfile, trusted_gate_id, trusted_tenant_id, executor_pool_size=8):
+        pass
+
+    monkeypatch.setattr(tempus_ddb.executor_runtime.ExecutorRuntime, "__init__", mock_init)
+
+    with pytest.raises(GitHubExecutorError, match="gate_db is configured for revocation verification, but the underlying ExecutorRuntime does not support it"):
+        GitHubAppExecutorAdapter(
+            executor_db=str(tmp_path / "exec.db"),
+            executor_keyfile=str(tmp_path / "exec.keys.json"),
+            trusted_gate_id="gate-id",
+            trusted_tenant_id="tenant-id",
+            credentials=credentials,
+            gate_db=str(tmp_path / "gate.db"),
+        )

@@ -58,7 +58,7 @@ def test_signed_jwt_scoping_cache_and_refresh(app_key):
     [
         ("other/widget", "github.create_issue"),
         ("acme/other", "github.create_issue"),
-        ("acme/widget", "github.merge_pull_request"),
+        ("acme/widget", "github.delete_repository"),
     ],
     ids=["different-owner", "different-repository", "unsupported-action"],
 )
@@ -86,3 +86,19 @@ def test_redirects_cannot_forward_credentials():
         RejectRedirects().redirect_request(
             None, None, 307, "", {}, "https://other.test"
         )
+
+
+@pytest.mark.parametrize("action,permission", [
+    ("github.add_comment", "issues"),
+    ("github.add_labels", "issues"),
+    ("github.request_review", "pull_requests"),
+    ("github.merge_pull_request", "contents"),
+])
+def test_new_action_token_scope(app_key, action, permission):
+    now = [time.time()]
+    transport = MockAppTransport(now)
+    credentials = make_provider(app_key, transport, now)
+    credentials.token_for("acme/widget", action)
+    assert transport.calls[0][3] == {
+        "repositories": ["widget"], "permissions": {permission: "write"},
+    }

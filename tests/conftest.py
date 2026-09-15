@@ -11,6 +11,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from tempus_ddb import TempusDDB, gen_keys
 
+from tempus_github_app.transport import PermitContext
+
 
 @pytest.fixture
 def app_key(tmp_path: Path) -> tuple[Path, rsa.RSAPrivateKey]:
@@ -34,6 +36,7 @@ class MockAppTransport:
         self.calls: list[tuple[str, str, dict[str, str], dict[str, Any]]] = []
         self.failure: Exception | None = None
         self.token = "installation-test-credential"
+        self.contexts: list[PermitContext | None] = []
 
     def request(
         self,
@@ -41,8 +44,11 @@ class MockAppTransport:
         url: str,
         headers: dict[str, str],
         payload: dict[str, Any],
+        *,
+        context: PermitContext | None = None,
     ) -> dict[str, Any]:
         self.calls.append((method, url, headers, payload))
+        self.contexts.append(context)
         if self.failure:
             raise self.failure
 

@@ -30,6 +30,10 @@ class GitHubAppCredentials:
     _PERMISSIONS: ClassVar[dict[str, str]] = {
         "github.create_issue": "issues",
         "github.create_pull_request": "pull_requests",
+        "github.add_comment": "issues",
+        "github.add_labels": "issues",
+        "github.request_review": "pull_requests",
+        "github.merge_pull_request": "contents",
     }
 
     def __init__(

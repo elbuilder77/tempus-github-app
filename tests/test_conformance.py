@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from tempus_ddb.testing import AdapterConformanceHarness
 
 from tempus_github_app.credentials import GitHubAppCredentials
@@ -24,6 +25,8 @@ class ConformanceTransport:
                 "token": "ghs_conformance_dummy_token",
                 "expires_at": "2099-01-01T00:00:00Z",
             }
+        if url.endswith("/merge"):
+            return {"merged": True, "sha": "a" * 40}
         return {
             "id": 1234,
             "number": 99,
@@ -32,7 +35,11 @@ class ConformanceTransport:
         }
 
 
-def test_github_app_adapter_conformance(app_key: tuple[Path, Any]) -> None:
+@pytest.mark.parametrize("action,inputs", [
+    ("github.create_issue", {"title": "Conformance Issue", "body": "Testing conformance"}),
+    ("github.merge_pull_request", {"pull_number": 1, "sha": "a" * 40, "merge_method": "squash"}),
+])
+def test_github_app_adapter_conformance(app_key: tuple[Path, Any], action, inputs) -> None:
     """Run the official Tempus DDB ActionAdapter conformance test suite."""
     pem_path, _ = app_key
 
@@ -52,9 +59,9 @@ def test_github_app_adapter_conformance(app_key: tuple[Path, Any]) -> None:
 
     harness = AdapterConformanceHarness(
         adapter_factory=create_adapter,
-        valid_action_type="github.create_issue",
+        valid_action_type=action,
         valid_resource="acme/widget-repo",
-        valid_input={"title": "Conformance Issue", "body": "Testing conformance"},
+        valid_input=inputs,
         tenant_id="tenant-conformance",
     )
     harness.run_all_checks()

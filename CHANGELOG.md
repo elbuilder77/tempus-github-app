@@ -5,6 +5,21 @@ All notable changes to `tempus-github-app` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Thread comments, issue/PR labels, and review requests with strict input validation and sanitized outcomes.
+- Pull request merges with mandatory 40-character HEAD SHA, explicit merge method, repository-scoped `contents: write` tokens, and confirmation of boolean `merged: true`.
+- Per-execution permit context and bounded GitHub rate-limit retries with read-only Gate revocation checks, complete server-required waits, and no retries after ambiguous results.
+- Merge setup guidance for accepting new installation permissions and configuring tenant approval policy.
+
+### Fixed
+
+- Reject configured `gate_db` when the underlying runtime cannot support revocation verification.
+- Classify unmergeable PRs (405) and changed HEAD commits (409) as deterministic failures.
+- Suppress arbitrary transport error messages from signed outcomes.
+
 ## [0.1.0] - 2026-09-15
 
 ### Added
@@ -27,4 +42,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Pytest Root Resolution**: Included repository root (`.`) in `tool.pytest.ini_options.pythonpath` so `pytest tests/ -v` can import `tests.conftest` fixtures without requiring `python -m pytest`.
 - **Webhook Error Sanitization**: Replaced unhandled exception reflection in FastAPI webhook server (`/webhook`) with a generic error message (`Error handling event`) while capturing full traces in server logs, preventing internal information disclosure.
-

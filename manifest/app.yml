@@ -5,6 +5,7 @@ url: https://github.com/elbuilder77/tempus-ddb
 description: B2A (Bot-to-Agent) Zero-Trust Authorization Gate and Mediated Executor for GitHub
 public: false
 default_permissions:
+  contents: write
   issues: write
   pull_requests: write
   metadata: read

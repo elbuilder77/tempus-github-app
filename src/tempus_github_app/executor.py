@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+import re
+import time
 from typing import Any, ClassVar
 
 from tempus_ddb.executor_runtime import (
@@ -13,11 +15,14 @@ from tempus_ddb.executor_runtime import (
 )
 
 from .credentials import GitHubAppCredentials
+from .permit_context import PermitBoundActionAdapter
 from .transport import (
     RESOURCE_PATTERN,
     GitHubAPIError,
     GitHubExecutorError,
+    GitHubPermitError,
     GitHubTransport,
+    PermitContext,
     UrllibGitHubTransport,
     validate_github_api_url,
 )
@@ -31,6 +36,10 @@ class GitHubAppActionAdapter(ActionAdapter):
     SUPPORTED_ACTIONS: ClassVar[set[str]] = {
         "github.create_issue",
         "github.create_pull_request",
+        "github.add_comment",
+        "github.add_labels",
+        "github.request_review",
+        "github.merge_pull_request",
     }
 
     def __init__(
@@ -47,7 +56,9 @@ class GitHubAppActionAdapter(ActionAdapter):
     def supported_actions(self) -> set[str]:
         return self.SUPPORTED_ACTIONS
 
-    def execute_action(self, intent: dict[str, Any]) -> ExecutionResult:
+    def execute_action(
+        self, intent: dict[str, Any], *, context: PermitContext | None = None
+    ) -> ExecutionResult:
         method, url, payload, action_type, resource = self._bind_request(intent)
 
         try:
@@ -68,7 +79,30 @@ class GitHubAppActionAdapter(ActionAdapter):
         }
 
         try:
-            response = self._transport.request(method, url, headers, payload)
+            if context is not None:
+                try:
+                    valid = context.check_validity is None or context.check_validity() is True
+                except Exception:  # noqa: BLE001 - verifier failures deny execution
+                    valid = False
+                if not valid or time.time() >= context.deadline:
+                    raise GitHubPermitError("Permit expired, revoked, or unverifiable")
+                parameters = inspect.signature(self._transport.request).parameters
+                accepts_context = "context" in parameters or any(
+                    parameter.kind == inspect.Parameter.VAR_KEYWORD
+                    for parameter in parameters.values()
+                )
+                if not accepts_context and context.check_validity is not None:
+                    raise GitHubPermitError("Transport does not support permit context")
+            else:
+                accepts_context = False
+            kwargs = {"context": context} if accepts_context else {}
+            response = self._transport.request(method, url, headers, payload, **kwargs)
+            if action_type == "github.merge_pull_request" and (
+                not isinstance(response, dict) or response.get("merged") is not True
+            ):
+                return ExecutionResult(
+                    status="FAILED", payload={"error_code": "GITHUB_MERGE_NOT_CONFIRMED"}
+                )
             result = self._sanitize_result(response, action_type, resource)
             return ExecutionResult(status="SUCCEEDED", payload=result)
         except GitHubAPIError as exc:
@@ -80,9 +114,21 @@ class GitHubAppActionAdapter(ActionAdapter):
                 status="FAILED",
                 payload={
                     "error_code": f"GITHUB_HTTP_{exc.status_code}",
-                    "message": str(exc),
+                    "message": (
+                        {405: "Pull request is not mergeable", 409: "Pull request HEAD SHA changed"}
+                        .get(exc.status_code, f"GitHub request rejected (HTTP {exc.status_code})")
+                        if action_type == "github.merge_pull_request"
+                        else f"GitHub request rejected (HTTP {exc.status_code})"
+                    ),
                 },
             )
+        except GitHubPermitError:
+            return ExecutionResult(
+                status="FAILED", payload={"error_code": "TEMPUS_GITHUB_PERMIT_INVALID"}
+            )
+        except AmbiguousTransportError:
+            # Custom transports must not leak response bodies or credentials in reasons.
+            raise AmbiguousTransportError("GITHUB_TRANSPORT_AMBIGUOUS") from None
         except Exception as exc:
             # Ambiguous network outcomes must fail closed as UNKNOWN
             raise AmbiguousTransportError(
@@ -101,16 +147,85 @@ class GitHubAppActionAdapter(ActionAdapter):
         if not isinstance(action_input, dict):
             raise GitHubExecutorError("intent.input must be an object")
 
-        if action_type == "github.create_issue":
+        method = "POST"
+        if action_type == "github.merge_pull_request":
+            self._reject_unknown_fields(action_input, {
+                "pull_number", "sha", "merge_method", "commit_title", "commit_message",
+            })
+            number = self._positive_integer(action_input, "pull_number")
+            sha = self._required_string(action_input, "sha")
+            if re.fullmatch(r"[0-9a-fA-F]{40}", sha) is None:
+                raise GitHubExecutorError("sha must be exactly 40 hexadecimal characters")
+            merge_method = self._required_string(action_input, "merge_method")
+            if merge_method not in {"merge", "squash", "rebase"}:
+                raise GitHubExecutorError("merge_method must be merge, squash, or rebase")
+            payload = {"sha": sha, "merge_method": merge_method}
+            for field in ("commit_title", "commit_message"):
+                if field in action_input:
+                    if not isinstance(action_input[field], str):
+                        raise GitHubExecutorError(f"{field} must be a string")
+                    payload[field] = action_input[field]
+            endpoint = f"/repos/{resource}/pulls/{number}/merge"
+            method = "PUT"
+        elif action_type == "github.create_issue":
             payload = self._issue_payload(action_input)
             endpoint = f"/repos/{resource}/issues"
         elif action_type == "github.create_pull_request":
             payload = self._pull_request_payload(action_input)
             endpoint = f"/repos/{resource}/pulls"
+        elif action_type == "github.add_comment":
+            self._reject_unknown_fields(action_input, {"issue_number", "body"})
+            number = self._positive_integer(action_input, "issue_number")
+            payload = self._comment_payload(action_input)
+            endpoint = f"/repos/{resource}/issues/{number}/comments"
+        elif action_type == "github.add_labels":
+            self._reject_unknown_fields(action_input, {"issue_number", "labels"})
+            number = self._positive_integer(action_input, "issue_number")
+            payload = {"labels": self._string_list(action_input, "labels")}
+            endpoint = f"/repos/{resource}/issues/{number}/labels"
+        elif action_type == "github.request_review":
+            self._reject_unknown_fields(
+                action_input, {"pull_number", "reviewers", "team_reviewers"}
+            )
+            number = self._positive_integer(action_input, "pull_number")
+            payload = {
+                field: self._string_list(action_input, field, allow_empty=True)
+                for field in ("reviewers", "team_reviewers") if field in action_input
+            }
+            if not any(payload.values()):
+                raise GitHubExecutorError("reviewers or team_reviewers must be non-empty")
+            endpoint = f"/repos/{resource}/pulls/{number}/requested_reviewers"
         else:
             raise GitHubExecutorError(f"unsupported GitHub action_type: {action_type}")
 
-        return "POST", self._api_url + endpoint, payload, action_type, resource
+        return method, self._api_url + endpoint, payload, action_type, resource
+
+    @staticmethod
+    def _positive_integer(value: dict[str, Any], field: str) -> int:
+        number = value.get(field)
+        if type(number) is not int or number <= 0:
+            raise GitHubExecutorError(f"{field} must be a positive integer")
+        return number
+
+    @staticmethod
+    def _string_list(
+        value: dict[str, Any], field: str, *, allow_empty: bool = False
+    ) -> list[str]:
+        items = value.get(field)
+        if (
+            not isinstance(items, list)
+            or (not items and not allow_empty)
+            or not all(isinstance(item, str) and item.strip() for item in items)
+        ):
+            raise GitHubExecutorError(f"{field} must be an array of non-empty strings")
+        return items
+
+    def _comment_payload(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Build a thread-level comment for an issue or PR, not an inline review."""
+        body = self._required_string(value, "body")
+        if not body.strip() or len(body) > 65_536:
+            raise GitHubExecutorError("body must contain 1 to 65,536 characters")
+        return {"body": body}
 
     @staticmethod
     def _required_string(value: dict[str, Any], field: str) -> str:
@@ -162,11 +277,30 @@ class GitHubAppActionAdapter(ActionAdapter):
 
     @staticmethod
     def _sanitize_result(
-        response: dict[str, Any], action_type: str, resource: str
+        response: dict[str, Any] | list[Any], action_type: str, resource: str
     ) -> dict[str, Any]:
         result = {"action_type": action_type, "resource": resource}
+        if action_type == "github.merge_pull_request":
+            result["merged"] = response.get("merged") is True
+            sha = response.get("sha")
+            if isinstance(sha, str) and re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+                result["sha"] = sha
+            return result
+        if action_type == "github.add_labels":
+            if not isinstance(response, list) or not all(
+                isinstance(label, dict) for label in response
+            ):
+                raise GitHubExecutorError("GitHub returned an invalid labels response")
+            result["labels"] = [
+                {field: label[field] for field in ("id", "name", "color")
+                 if field in label and type(label[field]) in (str, int)}
+                for label in response
+            ]
+            return result
+        if not isinstance(response, dict):
+            raise GitHubExecutorError("GitHub returned a non-object response")
         for field in ("id", "number", "html_url", "url", "state"):
-            if field in response:
+            if field in response and type(response[field]) in (str, int):
                 result[field] = response[field]
         return result
 
@@ -196,13 +330,21 @@ class GitHubAppExecutorAdapter:
             "trusted_tenant_id": trusted_tenant_id,
             "executor_pool_size": executor_pool_size,
         }
-        if gate_db is not None and "gate_db" in inspect.signature(ExecutorRuntime.__init__).parameters:
-            runtime_kwargs["gate_db"] = gate_db
+        if gate_db is not None:
+            if "gate_db" in inspect.signature(ExecutorRuntime.__init__).parameters:
+                runtime_kwargs["gate_db"] = gate_db
+            else:
+                raise GitHubExecutorError(
+                    "gate_db is configured for revocation verification, but the underlying ExecutorRuntime does not support it"
+                )
         self._runtime = ExecutorRuntime(**runtime_kwargs)
+        self._gate_db = gate_db
 
     def execute(self, permit_json: str) -> str:
         """Consume a permit, perform exactly its GitHub action, and sign the outcome."""
-        return self._runtime.execute_permit(permit_json, self._adapter)
+        return self._runtime.execute_permit(
+            permit_json, PermitBoundActionAdapter(self._adapter, permit_json, self._gate_db)
+        )
 
     execute_permit = execute
 

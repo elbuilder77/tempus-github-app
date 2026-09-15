@@ -142,13 +142,71 @@ outcome_json = executor.execute(permit_json)
 
 ## 🛡️ Security Guarantees & Invariants
 
+### Supported actions
+
+All actions require an exact `owner/repository` resource in the signed intent.
+Unknown input fields are rejected before requesting installation credentials.
+
+| Action | Required input | Installation permission |
+| --- | --- | --- |
+| `github.create_issue` | `title` | `issues: write` |
+| `github.create_pull_request` | `title`, `head`, `base` | `pull_requests: write` |
+| `github.add_comment` | Positive integer `issue_number`, non-empty `body` (up to 65,536 characters) | `issues: write` |
+| `github.add_labels` | Positive integer `issue_number`, non-empty list of non-empty `labels` | `issues: write` |
+| `github.request_review` | Positive integer `pull_number`, at least one non-empty list of `reviewers` or `team_reviewers` | `pull_requests: write` |
+| `github.merge_pull_request` | Positive integer `pull_number`, 40-character hexadecimal HEAD `sha`, explicit `merge_method` (`merge`, `squash`, `rebase`) | `contents: write` |
+
+Comments are conversation-thread comments on issues or pull requests. Review
+requests accept user logins and team slugs. Label outcomes include only label
+IDs, names, and colors; comment and review-request outcomes retain only selected
+resource metadata, excluding comment bodies and user profiles.
+
+Merges accept optional string `commit_title` and `commit_message`. They succeed only
+when GitHub explicitly returns boolean `merged: true`. Existing Apps must add
+`contents: write`, and existing installations must accept the updated permissions.
+Configure Gate policy to restrict merges to integration/release-manager identities
+and require human approval for protected branches before issuing permits; this
+executor does not configure that governance. See [merge setup](docs/SETUP.md#6-enable-governed-pull-request-merges).
+
 * **Zero Credential & Information Leakage**: The agent never receives GitHub tokens. The executor process handles authentication internally, and the webhook server sanitizes error responses to prevent internal detail disclosure.
-* **Scope Minimization**: Tokens are generated on-demand with minimal repository and permission scope (`issues: write` or `pull_requests: write`).
+* **Scope Minimization**: Tokens are generated on-demand with minimal repository and permission scope (`issues: write`, `pull_requests: write`, or `contents: write` for merges).
 * **Redirect Shielding**: Enforces strict redirect blocking (`RejectRedirects`) on API calls to prevent credential forwarding to third-party endpoints.
 * **Replay Protection**: The underlying Tempus permit is consumed atomically; replay attempts fail immediately without contacting GitHub.
 * **Adapter Conformance**: Validated against the official `tempus_ddb.testing.AdapterConformanceHarness` conformance suite.
 
 ---
+
+## Permit-bounded rate-limit retries
+
+The executor supplies a per-execution `PermitContext` only from the runtime's
+post-verification, post-consumption adapter callback. Its deadline comes from
+the signed authorization (`expires_at` in microseconds, converted to UNIX seconds).
+The same permit is never consumed again for a retry.
+
+Configure `--gate-db` (or SDK `gate_db`) to enable up to three rate-limit retries.
+Each attempt checks expiry and queries the Gate database read-only for permit
+revocation, agent identity revocation, and an already committed outcome. Missing
+databases, incompatible schemas, locks, and failed checks stop execution. Without
+`gate_db`, requests receive a single attempt.
+
+The transport respects `Retry-After` and primary rate-limit reset times. A
+secondary limit without a wait header starts at 60 seconds, with exponential
+backoff, following [GitHub's retry guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api).
+It never shortens GitHub's wait to fit a permit. Expiry or revocation during a
+wait prevents the next request. Socket timeouts are capped at 30 seconds and the
+remaining budget; less than one second remaining stops the attempt rather than
+rounding its timeout above the deadline. These are socket timeouts, not a guarantee
+that an in-flight remote operation will finish before expiry.
+
+Ordinary permission-denied responses and exhausted rate-limit budgets yield
+`FAILED`. Network failures, timeouts, malformed success responses, and HTTP 5xx
+yield `UNKNOWN` without automatic replay; reconciliation must use read-only calls.
+
+Custom transports should accept `request(..., *, context: PermitContext | None = None)`
+and enforce this contract. Legacy transports without that argument remain usable
+without `gate_db`; configuring active revocation with such a transport fails closed.
+The bundled bridge supports the SQLite revocation schema used by `tempus-ddb`;
+it does not alter the installed runtime or its verification and signing logic.
 
 ## 🧪 Testing
 

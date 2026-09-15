@@ -15,6 +15,7 @@ You can register the App manually or via the App Manifest (`manifest/app.yml`).
    - **Repository permissions**:
      - **Issues**: `Read and write`
      - **Pull requests**: `Read and write`
+     - **Contents**: `Read and write` (required for merging pull requests)
      - **Metadata**: `Read-only` (implicit)
 5. **Webhooks** (Optional):
    - If using the webhook service, provide your server URL and generate a secret string.
@@ -83,3 +84,27 @@ tempus-github-app-server --secret GITHUB_WEBHOOK_SECRET --port 8000
 ```
 
 Configure your GitHub App's Webhook URL to point to `https://your-domain.com/webhook` and ensure HMAC verification is enabled.
+
+## 6. Enable governed pull request merges
+
+For existing Apps, update **Repository permissions → Contents** to **Read and write**.
+Existing installations must accept the new permissions before merges can authenticate.
+Updating this repository's manifest does not update an already registered App or installation.
+Merge tokens are scoped to `contents: write` and the operator-bound repository.
+
+The signed intent for `github.merge_pull_request` must include a positive integer
+`pull_number`, the audited HEAD `sha` (exactly 40 hexadecimal characters), and an
+explicit `merge_method` (`merge`, `squash`, or `rebase`). Optional `commit_title` and
+`commit_message` must be strings. No other fields are accepted.
+
+Before issuing merge permits, configure the tenant's Gate policy to require an
+integration/release-manager role and human approval or dual signatures for protected
+branches such as `main`. These are Gate policy responsibilities; enabling this action
+does not install that policy or implement human approval in this executor. The executor
+verifies the signed permit and executes its bound repository, PR, SHA, and method.
+Keep GitHub branch protections enabled and require a new audited permit if HEAD changes.
+
+Only a response containing boolean `merged: true` yields success. HTTP 405 means the
+PR cannot be merged; HTTP 409 means HEAD differs from the authorized SHA. Both fail
+without retry. Ambiguous results remain `UNKNOWN` and require read-only reconciliation.
+See [GitHub's merge endpoint](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request).
