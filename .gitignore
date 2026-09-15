@@ -54,3 +54,6 @@ htmlcov/
 *.keys.json
 .env.local
 .env.*.local
+
+# Local operator deployment (identities, configuration, and audit state)
+.local/
