@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pin the compatible Tempus runtime source and configure Rust in CI; PyPI 0.5.1 does not support the required `gate_db` constructor argument.
 - Reject configured `gate_db` when the underlying runtime cannot support revocation verification.
 - Classify unmergeable PRs (405) and changed HEAD commits (409) as deterministic failures.
 - Suppress arbitrary transport error messages from signed outcomes.

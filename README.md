@@ -66,7 +66,11 @@ pip install -e ".[server]"
 pip install -e ".[dev]"
 ```
 
-Requires Python 3.10+ and `tempus-ddb>=0.5.0`.
+Requires Python 3.10+, Git, and the stable Rust toolchain to build the pinned
+`tempus-ddb` runtime. The dependency currently points to commit
+`95e792be4dda22bf65963896a81191d0d0cef094` (0.5.2 source), which supports
+`gate_db`; the published 0.5.1 runtime lacks that constructor argument.
+Keep the source pin until a compatible release is published and verified.
 
 ---
 
