@@ -6,6 +6,8 @@ This guide explains how to register, install, and operate the Tempus GitHub App 
 
 ## 1. Register the GitHub App
 
+You can register the App manually or via the App Manifest (`manifest/app.yml`).
+
 1. Go to **GitHub Settings → Developer settings → GitHub Apps → New GitHub App**.
 2. **App Name**: Choose a unique name (e.g., `tempus-security-gate-acme`).
 3. **Homepage URL**: `https://github.com/elbuilder77/tempus-ddb` (or your organization's URL).
@@ -28,7 +30,7 @@ This guide explains how to register, install, and operate the Tempus GitHub App 
 3. Note the **Client ID** (e.g., `Iv1.xxxxxxxxxxxx`) and **App ID**.
 
 > [!CAUTION]
-> Never commit the `.pem` private key to source control. Ensure permissions are restricted (`chmod 600` on Linux/macOS).
+> Never commit the `.pem` private key to source control. Ensure file permissions are restricted (`chmod 600` on Linux/macOS).
 
 ---
 
@@ -60,4 +62,24 @@ The GitHub App RSA key remains strictly inside the mediated executor process. Th
      --installation-id 12345678 \
      --repository owner/repository
    ```
+   Or using `.env`:
+   ```bash
+   tempus-github-app-executor --permit permit.json
+   ```
 4. **Receipt produced**: Both executor and Gate sign the outcome, producing a mathematical audit receipt.
+5. **Offline trace verification**:
+   ```bash
+   tempus verify-trace --action-id <ACTION_ID>
+   ```
+
+---
+
+## 5. Webhook Server Setup (Optional)
+
+To receive webhooks (e.g., issue opened, PR created):
+
+```bash
+tempus-github-app-server --secret GITHUB_WEBHOOK_SECRET --port 8000
+```
+
+Configure your GitHub App's Webhook URL to point to `https://your-domain.com/webhook` and ensure HMAC verification is enabled.

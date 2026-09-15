@@ -1,14 +1,12 @@
 """Credential-isolated GitHub App executor for Tempus permits."""
 
-import json
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, ClassVar
 
 from tempus_ddb.executor_runtime import (
     ActionAdapter,
     AmbiguousTransportError,
     ExecutionResult,
     ExecutorRuntime,
-    UnknownExecutionError,
 )
 
 from .credentials import GitHubAppCredentials
@@ -27,7 +25,7 @@ class GitHubAppActionAdapter(ActionAdapter):
 
     unsupported_error_code = "TEMPUS_GITHUB_BINDING_REJECTED"
 
-    SUPPORTED_ACTIONS: Set[str] = {
+    SUPPORTED_ACTIONS: ClassVar[set[str]] = {
         "github.create_issue",
         "github.create_pull_request",
     }
@@ -36,22 +34,22 @@ class GitHubAppActionAdapter(ActionAdapter):
         self,
         credentials: GitHubAppCredentials,
         api_url: str = "https://api.github.com",
-        transport: Optional[GitHubTransport] = None,
+        transport: GitHubTransport | None = None,
     ):
         self._credentials = credentials
         self._api_url = validate_github_api_url(api_url)
         self._transport = transport or UrllibGitHubTransport()
 
     @property
-    def supported_actions(self) -> Set[str]:
+    def supported_actions(self) -> set[str]:
         return self.SUPPORTED_ACTIONS
 
-    def execute_action(self, intent: Dict[str, Any]) -> ExecutionResult:
+    def execute_action(self, intent: dict[str, Any]) -> ExecutionResult:
         method, url, payload, action_type, resource = self._bind_request(intent)
 
         try:
             token = self._credentials.token_for(resource, action_type)
-        except Exception:
+        except Exception:  # noqa: BLE001
             # Never leak credential details or stack trace
             return ExecutionResult(
                 status="FAILED",
@@ -83,13 +81,14 @@ class GitHubAppActionAdapter(ActionAdapter):
                 },
             )
         except Exception as exc:
+            # Ambiguous network outcomes must fail closed as UNKNOWN
             raise AmbiguousTransportError(
                 f"GITHUB_TRANSPORT_AMBIGUOUS: {type(exc).__name__}"
             ) from exc
 
     def _bind_request(
-        self, intent: Dict[str, Any]
-    ) -> Tuple[str, str, Dict[str, Any], str, str]:
+        self, intent: dict[str, Any]
+    ) -> tuple[str, str, dict[str, Any], str, str]:
         action_type = self._required_string(intent, "action_type")
         resource = self._required_string(intent, "resource")
         if not RESOURCE_PATTERN.fullmatch(resource):
@@ -111,16 +110,16 @@ class GitHubAppActionAdapter(ActionAdapter):
         return "POST", self._api_url + endpoint, payload, action_type, resource
 
     @staticmethod
-    def _required_string(value: Dict[str, Any], field: str) -> str:
+    def _required_string(value: dict[str, Any], field: str) -> str:
         result = value.get(field)
         if not isinstance(result, str) or not result:
             raise GitHubExecutorError(f"{field} must be a non-empty string")
         return result
 
-    def _issue_payload(self, value: Dict[str, Any]) -> Dict[str, Any]:
+    def _issue_payload(self, value: dict[str, Any]) -> dict[str, Any]:
         allowed = {"title", "body", "labels"}
         self._reject_unknown_fields(value, allowed)
-        payload: Dict[str, Any] = {"title": self._required_string(value, "title")}
+        payload: dict[str, Any] = {"title": self._required_string(value, "title")}
         if "body" in value:
             if not isinstance(value["body"], str):
                 raise GitHubExecutorError("input.body must be a string")
@@ -134,10 +133,10 @@ class GitHubAppActionAdapter(ActionAdapter):
             payload["labels"] = labels
         return payload
 
-    def _pull_request_payload(self, value: Dict[str, Any]) -> Dict[str, Any]:
+    def _pull_request_payload(self, value: dict[str, Any]) -> dict[str, Any]:
         allowed = {"title", "head", "base", "body", "draft"}
         self._reject_unknown_fields(value, allowed)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "title": self._required_string(value, "title"),
             "head": self._required_string(value, "head"),
             "base": self._required_string(value, "base"),
@@ -153,15 +152,15 @@ class GitHubAppActionAdapter(ActionAdapter):
         return payload
 
     @staticmethod
-    def _reject_unknown_fields(value: Dict[str, Any], allowed: set) -> None:
+    def _reject_unknown_fields(value: dict[str, Any], allowed: set) -> None:
         unknown = sorted(set(value) - allowed)
         if unknown:
             raise GitHubExecutorError(f"unsupported input fields: {', '.join(unknown)}")
 
     @staticmethod
     def _sanitize_result(
-        response: Dict[str, Any], action_type: str, resource: str
-    ) -> Dict[str, Any]:
+        response: dict[str, Any], action_type: str, resource: str
+    ) -> dict[str, Any]:
         result = {"action_type": action_type, "resource": resource}
         for field in ("id", "number", "html_url", "url", "state"):
             if field in response:
@@ -180,8 +179,9 @@ class GitHubAppExecutorAdapter:
         trusted_tenant_id: str,
         credentials: GitHubAppCredentials,
         api_url: str = "https://api.github.com",
-        transport: Optional[GitHubTransport] = None,
+        transport: GitHubTransport | None = None,
         executor_pool_size: int = 8,
+        gate_db: str | None = None,
     ):
         self._adapter = GitHubAppActionAdapter(
             credentials=credentials, api_url=api_url, transport=transport
@@ -192,6 +192,7 @@ class GitHubAppExecutorAdapter:
             trusted_gate_id=trusted_gate_id,
             trusted_tenant_id=trusted_tenant_id,
             executor_pool_size=executor_pool_size,
+            gate_db=gate_db,
         )
 
     def execute(self, permit_json: str) -> str:

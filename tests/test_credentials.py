@@ -1,46 +1,13 @@
+from __future__ import annotations
+
 import time
-from datetime import datetime, timezone
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 
 from tempus_github_app.credentials import GitHubAppCredentials
 from tempus_github_app.transport import GitHubExecutorError, RejectRedirects
-
-
-@pytest.fixture
-def app_key(tmp_path):
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    path = tmp_path / "app.pem"
-    path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-    )
-    return path, key
-
-
-class MockAppTransport:
-    def __init__(self, now):
-        self.now = now
-        self.calls = []
-        self.failure = None
-        self.token = "installation-test-credential"
-
-    def request(self, method, url, headers, payload):
-        self.calls.append((method, url, headers, payload))
-        if self.failure:
-            raise self.failure
-        return {
-            "token": self.token,
-            "expires_at": datetime.fromtimestamp(
-                self.now[0] + 3600, timezone.utc
-            ).isoformat(),
-        }
+from tests.conftest import MockAppTransport
 
 
 def make_provider(app_key, transport, now):
@@ -87,7 +54,7 @@ def test_signed_jwt_scoping_cache_and_refresh(app_key):
 
 
 @pytest.mark.parametrize(
-    "resource,action",
+    ("resource", "action"),
     [
         ("other/widget", "github.create_issue"),
         ("acme/other", "github.create_issue"),

@@ -1,27 +1,10 @@
-import json
-import time
+from __future__ import annotations
 
-import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+import time
 
 from tempus_github_app.credentials import GitHubAppCredentials
 from tempus_github_app.executor import GitHubAppActionAdapter
-from tests.test_credentials import MockAppTransport
-
-
-@pytest.fixture
-def app_key(tmp_path):
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    path = tmp_path / "app.pem"
-    path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-    )
-    return path, key
+from tests.conftest import MockAppTransport
 
 
 def test_auth_failure_does_not_write_or_leak_credentials(app_key):

@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Protocol
 from urllib import error, parse, request
 
 RESOURCE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -43,9 +43,9 @@ class GitHubTransport(Protocol):
         self,
         method: str,
         url: str,
-        headers: Dict[str, str],
-        payload: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        headers: dict[str, str],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute one GitHub API request."""
 
 
@@ -63,9 +63,9 @@ class UrllibGitHubTransport:
         self,
         method: str,
         url: str,
-        headers: Dict[str, str],
-        payload: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        headers: dict[str, str],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         validate_github_api_url(url)
         encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         github_request = request.Request(

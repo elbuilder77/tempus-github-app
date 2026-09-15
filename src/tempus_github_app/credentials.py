@@ -2,9 +2,10 @@
 
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import ClassVar
 
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -26,7 +27,7 @@ class GitHubAppCredentials:
     a separate executor database, identity, and provider for each tenant binding.
     """
 
-    _PERMISSIONS = {
+    _PERMISSIONS: ClassVar[dict[str, str]] = {
         "github.create_issue": "issues",
         "github.create_pull_request": "pull_requests",
     }
@@ -39,7 +40,7 @@ class GitHubAppCredentials:
         repository: str,
         *,
         api_url: str = "https://api.github.com",
-        transport: Optional[GitHubTransport] = None,
+        transport: GitHubTransport | None = None,
         clock: Callable[[], float] = time.time,
     ):
         if not isinstance(client_id, str) or not client_id.strip():
@@ -58,7 +59,8 @@ class GitHubAppCredentials:
             key = serialization.load_pem_private_key(key_bytes, password=None)
             if not isinstance(key, RSAPrivateKey) or key.key_size < 2048:
                 raise ValueError("RSA key required with at least 2048 bits")
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Never leak filesystem or key loading details
             raise GitHubExecutorError(
                 "Cannot load GitHub App RSA private key (2048+ bits)"
             ) from None
@@ -129,7 +131,7 @@ class GitHubAppCredentials:
                     or expires_at <= self._clock() + 60
                 ):
                     raise ValueError("Invalid installation token")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 # Never leak response bodies or stack traces that may contain credentials
                 raise GitHubExecutorError(
                     "GitHub App installation authentication failed"

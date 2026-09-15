@@ -3,7 +3,8 @@
 import hashlib
 import hmac
 import json
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 class WebhookVerificationError(ValueError):
@@ -11,7 +12,7 @@ class WebhookVerificationError(ValueError):
 
 
 def verify_webhook_signature(
-    payload_bytes: bytes, secret: str, signature_header: Optional[str]
+    payload_bytes: bytes, secret: str, signature_header: str | None
 ) -> bool:
     """Verify that the webhook payload was signed by GitHub using the shared secret.
 
@@ -32,12 +33,12 @@ class GitHubWebhookHandler:
 
     def __init__(self, webhook_secret: str):
         self._webhook_secret = webhook_secret
-        self._handlers: Dict[str, Callable[[str, Dict[str, Any]], Any]] = {}
+        self._handlers: dict[str, Callable[[str, dict[str, Any]], Any]] = {}
 
     def on(self, event_type: str):
         """Decorator to register a handler for a specific GitHub event type (e.g., 'issues')."""
 
-        def decorator(func: Callable[[str, Dict[str, Any]], Any]):
+        def decorator(func: Callable[[str, dict[str, Any]], Any]):
             self._handlers[event_type] = func
             return func
 
@@ -47,7 +48,7 @@ class GitHubWebhookHandler:
         self,
         event_name: str,
         payload_bytes: bytes,
-        signature_header: Optional[str],
+        signature_header: str | None,
     ) -> Any:
         """Verify signature and dispatch event to handler."""
         if not verify_webhook_signature(
