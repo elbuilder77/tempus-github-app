@@ -1,5 +1,8 @@
 """Credential-isolated GitHub App executor for Tempus permits."""
 
+from __future__ import annotations
+
+import inspect
 from typing import Any, ClassVar
 
 from tempus_ddb.executor_runtime import (
@@ -186,14 +189,16 @@ class GitHubAppExecutorAdapter:
         self._adapter = GitHubAppActionAdapter(
             credentials=credentials, api_url=api_url, transport=transport
         )
-        self._runtime = ExecutorRuntime(
-            executor_db=executor_db,
-            executor_keyfile=executor_keyfile,
-            trusted_gate_id=trusted_gate_id,
-            trusted_tenant_id=trusted_tenant_id,
-            executor_pool_size=executor_pool_size,
-            gate_db=gate_db,
-        )
+        runtime_kwargs: dict[str, Any] = {
+            "executor_db": executor_db,
+            "executor_keyfile": executor_keyfile,
+            "trusted_gate_id": trusted_gate_id,
+            "trusted_tenant_id": trusted_tenant_id,
+            "executor_pool_size": executor_pool_size,
+        }
+        if gate_db is not None and "gate_db" in inspect.signature(ExecutorRuntime.__init__).parameters:
+            runtime_kwargs["gate_db"] = gate_db
+        self._runtime = ExecutorRuntime(**runtime_kwargs)
 
     def execute(self, permit_json: str) -> str:
         """Consume a permit, perform exactly its GitHub action, and sign the outcome."""
