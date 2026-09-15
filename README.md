@@ -28,6 +28,32 @@
 
 Neither the GitHub App private key nor ephemeral installation tokens ever leak to the requesting agent or execution receipts.
 
+```text
+┌─────────────────┐       1. Signed Intent        ┌──────────────────┐
+│ Requesting Agent│ ────────────────────────────► │   Tempus Gate    │
+│  (No GitHub key)│ ◄──────────────────────────── │ (Signed Policies)│
+└────────┬────────┘       2. Signed Permit        └──────────────────┘
+         │
+         │ 3. Present Permit
+         ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 Tempus GitHub App Mediated Executor                 │
+│                                                                     │
+│  4. Atomically consume permit & verify Gate signature               │
+│  5. Mint ephemeral RS256 JWT from RSA private key (.pem)            │
+│  6. Exchange JWT for 1-hour repository-scoped installation token    │
+│  7. Call GitHub REST API (Issues / Pull Requests)                   │
+│  8. Dual-sign execution outcome (Zero credential leakage)           │
+└──────────────────────────────────┬──────────────────────────────────┘
+                                   │
+                                   │ 9. Immutable Trace Receipt
+                                   ▼
+                         ┌────────────────────┐
+                         │    Tempus Trace    │
+                         │ (Offline Auditable)│
+                         └────────────────────┘
+```
+
 ---
 
 ## ⚡ Installation
@@ -130,6 +156,9 @@ pytest tests/ -v
 
 ---
 
-## 📄 License
+## 📄 License & Changelog
 
-MIT License. Part of the [Tempus DDB](https://github.com/elbuilder77/tempus-ddb) ecosystem.
+* [MIT License](LICENSE)
+* [Changelog](CHANGELOG.md)
+
+Part of the [Tempus DDB](https://github.com/elbuilder77/tempus-ddb) ecosystem.
